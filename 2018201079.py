@@ -30,7 +30,6 @@ while fp.readline()[ : -1 ] == "<begin_table>":
         x = x[ : -1 ]
         
 i = 0
-
 def check_aggr( cols ) :
     if re.match("^(count|max|sum|avg|min)\((\w|.)+\)$", cols.lower() ) :# For aggregate functions 
         i = cols.find("(")
@@ -48,21 +47,21 @@ def table_included( cols ) :
             table = cols[  : j  ]
             column = cols[ j + 1 : ]
             
-#             table = table.replace(" ", "" )
             if table not in req_tables :
                 raise SystemExit("Table not found")
             
-#             column = column.replace(" ", "" )
             if column not in meta[ table ] :
                 raise SystemExit("Column not found")
                 
             return column    
             
+    
     return cols 
 
 def validate_where( where_part ) :
     col_1 = ""
     col_2 = ""
+
     if "<=" in where_part :
         i = where_part.index("<")
          
@@ -153,8 +152,11 @@ def validate_where( where_part ) :
         elif match_2 == 1 and col_2 in meta[ table ] and "." not in second :
             raise SystemExit("Ambigous column name in where ")     
             
-    if col_2.isdigit() and col_1.isdigit() :
-        raise SystemExit("Error in where, both operands are numbers")
+    if col_1[ 0 ] == "-" :
+        col_1 = col_1[ 1 : ]
+        
+    if col_2[ 0 ] == "-" :
+        col_2 = col_2[ 1 : ]    
             
     if ( not col_1.isdigit() and match_1 == 0 ) or ( not col_2.isdigit() and match_2 == 0 ) :    
         if match_1 == 0 :
@@ -271,7 +273,6 @@ for cols in output :
         i = cols.find("(")
         cols = cols[ i + 1 : -1 ]
         cols = rem_space( cols )
-
         if "." in cols :
             table_included( cols )
         else :
@@ -301,6 +302,7 @@ for cols in output :
             raise SystemExit("Column not found")
 
 #Validation of 'where' part
+
 if( ( len( query_tokenized ) == 5 and query_tokenized[ 4 ][ : 5 ].lower() == "where" ) or ( len( query_tokenized ) == 6 and query_tokenized[ 5 ][ : 5 ].lower() == "where" ) ) :
     if len( query_tokenized ) == 5 :
         where_part = query_tokenized[ 4 ] 
@@ -364,14 +366,11 @@ for col in output :
             col = col_temp
             
             out_col.append( col )#storing in out_col list
-            
-            
-#print("Columns for output :",out_col )
-
+    else :
+    	out_col.append( col )
 #Modifying columns in 'where' clause to table_name.column_name form,
 conditions = []
-# if( query_tokenized[ 1 ].lower() == "distinct" ):
-#     pass
+
 if ( ( not( query_tokenized[ 1 ].lower() == "distinct") and len( query_tokenized ) == 5 ) ) or ( query_tokenized[ 1 ].lower() == "distinct" and len( query_tokenized ) == 6 )  :
     where_part = query_tokenized[ -1 ] #taking where part out of query_tokenized list and eliminating 'where' from it
     where_part = where_part[ 5 : ]
@@ -394,7 +393,6 @@ if ( ( not( query_tokenized[ 1 ].lower() == "distinct") and len( query_tokenized
         op = ""
         operands = []
         cnd = conds[ it ]
-        
         if "<=" in cnd :
             operands = cnd.split("<=")
             op = "<="
@@ -418,6 +416,7 @@ if ( ( not( query_tokenized[ 1 ].lower() == "distinct") and len( query_tokenized
                 if re.match("^(count|max|sum|avg|min)\((\w|.)+\)$", col.lower() ) :# For aggregate functions
                     raise SystemExit("Inappropriate use of aggregation")
                 else :
+
                     #Removing space from ends
                     col_temp = col
                     for table in req_tables :
@@ -500,6 +499,10 @@ for row in csv_reads[ req_tables[ 0 ] ] :
 #Taking cartesian product if 'req_tables' has more than one table entery
 temp_rem = []
 temp = []
+dup = [] #list that will maintain if join had happened or not, if yes it will have both cols on which join had happened
+#and the col_name of new col which is created after joining them
+dup.append( 0 ) #Intializing with join not happened
+
 if len( req_tables ) > 1 :
     i = 1 
     j = 1
@@ -534,31 +537,67 @@ if len( conditions ) > 0 :
     if len( conditions ) == 1 :
         operand_1 = conditions[ 0 ][ 0 ]
         operand_2 = conditions[ 0 ][ 1 ]
+        n_1 = 0
+        n_2 = 0
+        
+        if operand_1[ 0 ] == "-" :
+            n_1 = 1
+            operand_1 = operand_2[ 1 : ]
+        if operand_2[ 0 ] == "-" :
+            n_2 = 1
+            operand_2 = operand_2[ 1 : ]
         
         if operand_1.isdigit() or operand_2.isdigit() :
             #One of the operand is digit
             temp_c1 = []
             temp_c1.append( rem_data[ 0 ] )
                 
-            if operand_1.isdigit() :
+            if operand_1.isdigit() and not operand_2.isdigit() :
+                
+                if n_1 == 1 :
+                    operand_1 = "-" + operand_1
+                if n_2 == 1 :
+                    operand_2 = "-" + operand_2
+                    
                 x = int( operand_1 )
                 i_2 = rem_data[ 0 ].index( operand_2 )
                 i_1 = -1
-            else :
+                
+            elif not operand_1.isdigit() and operand_2.isdigit()  :
+                
+                if n_1 == 1 :
+                    operand_1 = "-" + operand_1
+                if n_2 == 1 :
+                    operand_2 = "-" + operand_2
+                    
                 y = int( operand_2 )
                 i_1 = rem_data[ 0 ].index( operand_1 )
+                i_2 = -1
+                
+            elif operand_1.isdigit() and operand_2.isdigit() :
+                
+                if n_1 == 1 :#If operand one is negative 
+                    operand_1 = "-" + operand_1
+                    
+                if n_2 == 1 :#If operand_2 is negative
+                    operand_2 = "-"    
+                    
+                x = int( operand_1 )
+                y = int( operand_2 )
+                i_1 = -1
                 i_2 = -1
                 
             j = 1 
             while j < len( rem_data ) :
                 t = []
                 t = rem_data[ j ]
-                if i_1 == -1 :
-                    y = t[ i_2 ]
-                else :
-                    x = t[ i_1 ]
+                if i_1 == -1 and i_2 != -1 :
+                    y = int( t[ i_2 ] )
+                elif i_1 != -1 and i_2 == -1 :
+                    x = int( t[ i_1 ] )
                     
-                if cond_eval( x, y, conditions[ 0 ][ 2 ] ) :
+                    
+                if cond_eval( x, y, conditions[ 0 ][ 2 ] ) == 1 :
                     temp_c1.append( t )
                     
                 j = j + 1
@@ -569,14 +608,25 @@ if len( conditions ) > 0 :
             
             
         else : #Both are Column name( Possibility of join operation )
+            
+            if n_1 == 1 :
+                operand_1 = "-" + operand_1
+            if n_2 == 1 :
+                operand_2 = "-" + operand_2
+            
             i_1 = operand_1.index(".")
             t_1 = operand_1[ : i_1 ]
             i_2 = operand_2.index(".")
             t_2 = operand_2[ : i_2 ]
             
-            if not( t_1 == t_2 ) and conditions[ 0 ][ 2 ] == "=" :
+            if conditions[ 0 ][ 2 ] == "=" :
                 i_1 = rem_data[ 0 ].index( operand_1 )
                 i_2 = rem_data[ 0 ].index( operand_2 )
+                
+                dup[ 0 ] = 1
+                dup.append( operand_1 )
+                dup.append( operand_2 )
+                dup.append( operand_1 )
                 
                 temp_c1.append( [ operand_1 ] )
                 ll = []
@@ -590,12 +640,12 @@ if len( conditions ) > 0 :
                     del ll[:]
                     
                     t = cp.deepcopy( rem_data[ j ] )
-                    if t[ i_1 ] == t[ i_2 ] :
+                    if int( t[ i_1 ] ) == int( t[ i_2 ] ) :
                         ll.append( t[ i_1 ] ) 
                         t.pop( i_1 )
                         t.pop( i_2 )
                         ll.extend( t )
-                        temp_c1.append( ll )
+                        temp_c1.append( ll[:] )
                     j = j + 1    
                 
                 del rem_data[:]
@@ -611,10 +661,10 @@ if len( conditions ) > 0 :
                 while j < len( rem_data ) :
                     t = []
                     t = rem_data[ j ]
-                    x = t[ i_1 ]
-                    y = t[ i_2 ]
+                    x = int( t[ i_1 ] )
+                    y = int( t[ i_2 ] )
                     
-                    if cond_eval( x, y, conditions[ 0 ][ 2 ] ) :
+                    if cond_eval( x, y, conditions[ 0 ][ 2 ] ) == 1 :
                         temp_c1.append( t )
                     
                     j = j + 1
@@ -632,43 +682,105 @@ if len( conditions ) > 0 :
         
         operand_1 = first[ 0 ]
         operand_2 = first[ 1 ]
+        n_1 = 0
+        n_2 = 0
+        
+        if operand_1[ 0 ] == "-" :
+            n_1 = 1
+            operand_1 = operand_2[ 1 : ]
+        if operand_2[ 0 ] == "-" :
+            n_2 = 1
+            operand_2 = operand_2[ 1 : ]
         
         if operand_1.isdigit() or operand_2.isdigit() :
             #One of the operand is digit
                 temp_c1.append( rem_data[ 0 ] )
                 
-                if operand_1.isdigit() :
+                if operand_1.isdigit() and not operand_2.isdigit():
+                    if n_1 == 1 :
+                        operand_1 = "-" + operand_1
+                    if n_2 == 1 :
+                        operand_2 = "-" + operand_2
+                        
                     x = int( operand_1 )
                     i_2 = rem_data[ 0 ].index( operand_2 )
                     i_1 = -1
-                else :
+                elif operand_2.isdigit() and not operand_1.isdigit() :
+                    if n_1 == 1 :
+                        operand_1 = "-" + operand_1
+                    if n_2 == 1 :
+                        operand_2 = "-" + operand_2
+                    
                     y = int( operand_2 )
                     i_1 = rem_data[ 0 ].index( operand_1 )
                     i_2 = -1
-                
+                elif operand_1.isdigit() and operand_2.isdigit() :
+                    i_1 = -1
+                    i_2 = -1
+                    
+                    if n_1 == 1 :
+                        operand_1 = "-" + operand_1
+                    if n_2 == 1 :
+                        operand_2 = "-" + operand_2
+                        
+                    x = int( operand_1 )
+                    y = int( operand_2 )
+                    
                 j = 1 
                 while j < len( rem_data ) :
                     t = []
                     t = rem_data[ j ]
-                    if i_1 == -1 :
-                        y = t[ i_2 ]
-                    else :
-                        x = t[ i_1 ]
+                    if i_1 == -1 and i_2 != -1 :
+                        y = int( t[ i_2 ] )
+                    elif i_1 != -1 and i_2 == -1 :
+                        x = int( t[ i_1 ] )
                     
-                    if cond_eval( x, y, first[ 2 ] ) :
+                    if cond_eval( x, y, first[ 2 ] ) == 1 :
                         temp_c1.append( t )
                     
                     j = j + 1
-  
+            
         else : #Both are Column name( Possibility of join operation )
+            
+            if n_1 == 1 :
+                operand_1 = "-" + operand_1
+            if n_2 == 1 :
+                operand_2 = "-" + operand_2
+            
             i_1 = operand_1.index(".")
             t_1 = operand_1[ : i_1 ]
             i_2 = operand_2.index(".")
             t_2 = operand_2[ : i_2 ]
             
-            if not( t_1 == t_2 ) and first[ 2 ] == "=" : #t_1 and t_2 are different tables and operation is '=' hence JOIN
+            if first[ 2 ] == "=" : #t_1 and t_2 are different tables and operation is '=' hence JOIN
                 
-                raise SystemExit("Inappropriate use of join condition")
+                i_1 = rem_data[ 0 ].index( operand_1 )
+                i_2 = rem_data[ 0 ].index( operand_2 )
+                
+                dup[ 0 ] = 1
+                dup.append( operand_1 )
+                dup.append( operand_2 )
+                dup.append( operand_1 )
+                
+                temp_c1.append( [ operand_1 ] )
+                ll = []
+                ll = cp.deepcopy( rem_data[ 0 ] )
+                ll.pop( i_1 )
+                ll.pop( i_2 )
+                temp_c1[ 0 ].extend( ll )
+                j = 1 #For indexing the rem_data for joining
+                while j < len( rem_data ) :
+                    t = []
+                    del ll[:]
+                    
+                    t = cp.deepcopy( rem_data[ j ] )
+                    if int( t[ i_1 ] ) == int( t[ i_2 ] ) :
+                        ll.append( t[ i_1 ] ) 
+                        t.pop( i_1 )
+                        t.pop( i_2 )
+                        ll.extend( t )
+                        temp_c1.append( ll[:] )
+                    j = j + 1
                 
             else :
                 temp_c1 = []
@@ -680,10 +792,10 @@ if len( conditions ) > 0 :
                 while j < len( rem_data ) :
                     t = []
                     t = rem_data[ j ]
-                    x = t[ i_1 ]
-                    y = t[ i_2 ]
+                    x = int( t[ i_1 ] )
+                    y = int( t[ i_2 ] )
                     
-                    if cond_eval( x, y, first[ 2 ] ) :
+                    if cond_eval( x, y, first[ 2 ] ) == 1 :
                         temp_c1.append( t )
                     
                     j = j + 1
@@ -691,46 +803,84 @@ if len( conditions ) > 0 :
         #For second condition
         operand_1 = second[ 0 ]
         operand_2 = second[ 1 ]
+        n_1 = 0
+        n_2 = 0
+        temp_c2 = []
         
+        if dup[ 0 ] == 1 :
+            if operand_1 in dup : #Checking if required column is eliminated due to join
+                operand_1 = dup[ -1 ]
+                
+            if operand_2 in dup : #Checking if required column is eliminated due to join
+                operand_2 = dup[ -1 ]
+        
+        if operand_1[ 0 ] == "-" :
+            n_1 = 1
+            operand_1 = operand_2[ 1 : ]
+        if operand_2[ 0 ] == "-" :
+            n_2 = 1
+            operand_2 = operand_2[ 1 : ]
+            
         if operand_1.isdigit() or operand_2.isdigit() :
             #One of the operand is digit
                 temp_c2.append( rem_data[ 0 ] )
                 
-                if operand_1.isdigit() :
+                if operand_1.isdigit() and not operand_2.isdigit() :
+                    if n_1 == 1 :
+                        operand_1 = "-" + operand_1
+                        
                     x = int( operand_1 )
                     i_2 = rem_data[ 0 ].index( operand_2 )
                     i_1 = -1
-                else :
+                elif operand_2.isdigit() and not operand_1.isdigit() :
+                    if n_2 == 1 :
+                        operand_2 = "-" + operand_2
+                        
                     y = int( operand_2 )
                     i_1 = rem_data[ 0 ].index( operand_1 )
+                    i_2 = -1
+                elif operand_1.isdigit() and operand_2.isdigit() :
+                    if n_1 == 1 :
+                        operand_1 = "-" + operand_1
+                    if n_2 == 1 :
+                        operand_2 = "-" + operand_2
+                        
+                    x = int( operand_1 )
+                    y = int( operand_2 )
+                    
+                    i_1 = -1
                     i_2 = -1
                 
                 j = 1 
                 while j < len( rem_data ) :
                     t = []
                     t = rem_data[ j ]
-                    if i_1 == -1 :
-                        y = t[ i_2 ]
-                    else :
-                        x = t[ i_1 ]
-                    
-                    if cond_eval( x, y, second[ 2 ] ) :
-                        temp_c1.append( t )
+                    if i_1 == -1 and i_2 != -1 :
+                        y = int( t[ i_2 ] )
+                    elif i_1 != -1 and i_2 == -1 :
+                        x = int( t[ i_1 ] )
+
+                    if cond_eval( x, y, second[ 2 ] ) == 1 :
+                        temp_c2.append( t )
                     
                     j = j + 1
             
         else : #Both are Column name( Possibility of join operation )
-            i_1 = operand_1.index(".")
-            t_1 = operand_1[ : i_1 ]
-            i_2 = operand_2.index(".")
-            t_2 = operand_2[ : i_2 ]
             
-            if not( t_1 == t_2 ) and second[ 2 ] == "=" : #t_1 and t_2 are different tables and operation is '=' hence JOIN
-                
-                raise SystemExit("Inappropriate use of join condition")
+            if n_1 == 1 :
+                operand_1 = "-" + operand_1
+            if n_2 == 1 :
+                operand_2 = "-" + operand_2
+            
+            if second[ 2 ] == "=" : #t_1 and t_2 are different tables and operation is '=' hence JOIN
                 
                 i_1 = rem_data[ 0 ].index( operand_1 )
                 i_2 = rem_data[ 0 ].index( operand_2 )
+                
+                dup[ 0 ] = 1
+                dup.append( operand_1 )
+                dup.append( operand_2 )
+                dup.append( operand_1 )
                 
                 temp_c2.append( [ operand_1 ] )
                 ll = []
@@ -744,12 +894,12 @@ if len( conditions ) > 0 :
                     del ll[:]
                     
                     t = cp.deepcopy( rem_data[ j ] )
-                    if t[ i_1 ] == t[ i_2 ] :
+                    if int( t[ i_1 ] ) == int( t[ i_2 ] ) :
                         ll.append( t[ i_1 ] ) 
                         t.pop( i_1 )
                         t.pop( i_2 )
                         ll.extend( t )
-                        temp_c2.append( ll )
+                        temp_c2.append( ll[:] )
                     j = j + 1    
                 
             else :
@@ -762,17 +912,17 @@ if len( conditions ) > 0 :
                 while j < len( rem_data ) :
                     t = []
                     t = rem_data[ j ]
-                    x = t[ i_1 ]
-                    y = t[ i_2 ]
+                    x = int( t[ i_1 ] )
+                    y = int( t[ i_2 ] )
                     
-                    if cond_eval( x, y, first[ 2 ] ) :
+                    if cond_eval( x, y, first[ 2 ] ) == 1 :
                         temp_c2.append( t )
                     
                     j = j + 1
         
         del rem_data[:]
         rem_data.append( temp_c1[ 0 ] )
-        
+
         if conditions[ 2 ].lower() == "and" :
             i = 0
             for row in temp_c1 :
@@ -797,9 +947,10 @@ if len( conditions ) > 0 :
             for row in temp_c2 :
                 if row not in rem_data :
                     rem_data.append( row )
-
-agg_data = cp.deepcopy( rem_data ) #Data remaining aftyer 'where' clause is copied to be used by aggregation function
+                    
+agg_data = cp.deepcopy( rem_data ) #Data remaining after 'where' clause is copied to be used by aggregation function
 #After executing all the conditions in 'where'
+
 temp_1 = []
 agg = 0 
 if len( rem_data ) == 1 : #If after running a condition no data rows were left, then this condition will run
@@ -820,22 +971,30 @@ else :    #If after executing 'where' clause data is left in rem_data, then this
     for col in out_col :
         temp_2 = []
         if col == "*" :
+    #         print("In for ", col, " with agg = ", agg)
             if agg == 1 :
                 temp_1[ 0 ].extend( rem_data[ 0 ] )
                 temp_1[ 1 ].extend( rem_data[ 1 ] )
+             
+            #If join had happened then there will be a list whoes first element be "1" representing join if not, it will be "0"
+            #representing join hadent happened yet, so print traditionally
+            
 
 
         elif re.match("^(count|max|sum|avg|min)\((\w|.)+\)$", col.lower() ) :# For aggregate function
             agg = 1
             name = check_aggr( col )
+            if name in dup :
+                name = dup[ -1 ]
+                
             agg_op = col[ : 3 ]
             agg_col_data = []
             i = agg_data[ 0 ].index( name )
             ind = 1
             while ind < len( agg_data ) :
-                agg_col_data.append( agg_data[ ind ][ i ] )
+                agg_col_data.append( int( agg_data[ ind ][ i ] ) )
                 ind = ind + 1 
-
+#             print("Data for aggregation : ", agg_col_data )
             if agg_op.lower() == "min" :
                 agg_val = min( agg_col_data )
 
@@ -862,14 +1021,14 @@ else :    #If after executing 'where' clause data is left in rem_data, then this
             ind = 1
             while ind < len( agg_data ) :
 
-                if agg_data[ ind ][ i ] == agg_val :
+                if int( agg_data[ ind ][ i ] ) == agg_val :
                     rem_data.append( agg_data[ ind ] ) 
+    #                 print("Found and inserted")
                     ind = len( agg_data )
 
                 ind = ind + 1
-
-            if ind == len( agg_data ) : #Comparing it because if value is found then ind will be one more than len( agg_data ), as we are storing len( agg_data ) in it, and after this, it will be incremented once 
-    #             print("Previously not found ")
+            
+            if ind == len( agg_data ) and not agg_op.lower() == "sum" : #Comparing it because if value is found then ind will be one more than len( agg_data ), as we are storing len( agg_data ) in it, and after this, it will be incremented once 
                 rem_data.append( agg_data[ -1 ] ) #If no value is matched then last row is used in SQL
 
             if len( temp_1 ) > 0 :
@@ -900,6 +1059,8 @@ else :    #If after executing 'where' clause data is left in rem_data, then this
                 temp_1.append( [ agg_val ] )
 
         else :
+            if col in dup :
+                col = dup[ -1 ]
             i = rem_data[ 0 ].index( col )
             ind = 0 
             while ind < len( rem_data ) :
@@ -952,4 +1113,5 @@ else :
         for elem in row :
                 print( elem, ",",  end = ' ' )
         print("\n")        
+ 
 
